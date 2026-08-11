@@ -2,16 +2,36 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+import os
 
 # Configuration de la page
 st.set_page_config(page_title="Gestion de Stock & Ventes", page_icon="📦", layout="wide")
 
-# Initialisation des données à zéro / vides
-if "stock" not in st.session_state:
-    st.session_state.stock = pd.DataFrame(columns=["Produit", "Quantité", "Prix Unitaire (€)"])
+# Noms des fichiers de sauvegarde permanente
+STOCK_FILE = "data_stock.csv"
+VENTES_FILE = "data_ventes.csv"
 
-if "ventes" not in st.session_state:
-    st.session_state.ventes = pd.DataFrame(columns=["Date", "Produit", "Quantité Vendue", "Total (€)"])
+# Fonctions pour charger et sauvegarder automatiquement les données
+def charger_donnees():
+    if os.path.exists(STOCK_FILE):
+        stock = pd.read_csv(STOCK_FILE)
+    else:
+        stock = pd.DataFrame(columns=["Produit", "Quantité", "Prix Unitaire (€)"])
+
+    if os.path.exists(VENTES_FILE):
+        ventes = pd.read_csv(VENTES_FILE)
+    else:
+        ventes = pd.DataFrame(columns=["Date", "Produit", "Quantité Vendue", "Total (€)"])
+
+    return stock, ventes
+
+def sauvegarder_donnees():
+    st.session_state.stock.to_csv(STOCK_FILE, index=False)
+    st.session_state.ventes.to_csv(VENTES_FILE, index=False)
+
+# Chargement initial des données
+if "stock" not in st.session_state or "ventes" not in st.session_state:
+    st.session_state.stock, st.session_state.ventes = charger_donnees()
 
 # Authentification simple
 if "authentifie" not in st.session_state:
@@ -53,7 +73,7 @@ else:
     else:
         menu = st.sidebar.radio("Navigation", ["Tableau de Bord"])
 
-    # 1. TABLEAU DE BORD (GRAPHIOUE EN COURBE ET APERÇU)
+    # 1. TABLEAU DE BORD
     if menu == "Tableau de Bord":
         st.header("📊 Tableau de Bord & Historique")
         
@@ -90,11 +110,11 @@ else:
             fig_courbe.update_traces(line_color="#1f77b4", line_width=3)
             st.plotly_chart(fig_courbe, use_container_width=True)
 
-    # 2. SAISIR UNE VENTE (ADMIN UNIQUEMENT)
+    # 2. SAISIR UNE VENTE
     elif menu == "Saisir une Vente":
         st.header("🛒 Enregistrer une Nouvelle Vente")
         if st.session_state.stock.empty:
-            st.warning("Le stock est vide. Veuillez d'abord ajouter des produits dans le menu 'Gérer le Stock'.")
+            st.warning("Le stock est vide. Veuillez d'abord ajouter des produits.")
         else:
             produits = st.session_state.stock["Produit"].tolist()
             prod_choisi = st.selectbox("Sélectionnez le produit", produits)
@@ -119,10 +139,11 @@ else:
                         "Total (€)": total
                     }])
                     st.session_state.ventes = pd.concat([st.session_state.ventes, nouvelle_vente], ignore_index=True)
+                    sauvegarder_donnees()  # SAUVEGARDE AUTOMATIQUE
                     st.success(f"Vente enregistrée avec succès ! Total : {total:.2f} €")
                     st.rerun()
 
-    # 3. GÉRER LE STOCK (ADMIN UNIQUEMENT)
+    # 3. GÉRER LE STOCK (ADMIN)
     elif menu == "Gérer le Stock (Admin)":
         if st.session_state.role != "Admin":
             st.error("Accès restreint : Seul un Administrateur peut modifier le stock.")
@@ -144,6 +165,7 @@ else:
                     else:
                         nouveau_prod = pd.DataFrame([{"Produit": nom_prod, "Quantité": qte_prod, "Prix Unitaire (€)": prix_prod}])
                         st.session_state.stock = pd.concat([st.session_state.stock, nouveau_prod], ignore_index=True)
+                        sauvegarder_donnees()  # SAUVEGARDE AUTOMATIQUE
                         st.success(f"Produit '{nom_prod}' ajouté au stock !")
                         st.rerun()
 
@@ -169,11 +191,13 @@ else:
                     if st.button("💾 Mettre à jour"):
                         st.session_state.stock.at[idx_mod, "Quantité"] = nouvelle_qte
                         st.session_state.stock.at[idx_mod, "Prix Unitaire (€)"] = nouveau_prix
-                        st.success("Mise à jour effectuée !")
+                        sauvegarder_donnees()  # SAUVEGARDE AUTOMATIQUE
+                        st.success("Mise à jour effectuée et sauvegardée !")
                         st.rerun()
                 with col_btn2:
                     if st.button("🗑️ Supprimer le produit"):
                         st.session_state.stock = st.session_state.stock.drop(idx_mod).reset_index(drop=True)
+                        sauvegarder_donnees()  # SAUVEGARDE AUTOMATIQUE
                         st.success("Produit supprimé !")
                         st.rerun()
-            
+                        
