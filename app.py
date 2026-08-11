@@ -10,7 +10,7 @@ st.set_page_config(page_title="Gestion de Stock & Ventes", page_icon="📦", lay
 STOCK_FILE = "data_stock.csv"
 VENTES_FILE = "data_ventes.csv"
 
-# Chargement / Sauvegarde
+# Chargement / Sauvegarde des fichiers
 def charger_donnees():
     if os.path.exists(STOCK_FILE):
         stock = pd.read_csv(STOCK_FILE)
@@ -35,10 +35,11 @@ if "authentifie" not in st.session_state:
     st.session_state.authentifie = False
     st.session_state.role = None
 
-# Connexion
+# 🔒 ÉCRAN DE CONNEXION
 if not st.session_state.authentifie:
-    st.title("🔒 Connexion")
-    pwd = st.text_input("Mot de passe Admin (ou cliquez sur Lecteur)", type="password")
+    st.title("🔒 Connexion à l'Application")
+    pwd = st.text_input("Entrez le mot de passe Admin (ou laissez vide pour Lecteur)", type="password")
+    
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Connexion Admin"):
@@ -47,7 +48,7 @@ if not st.session_state.authentifie:
                 st.session_state.role = "Admin"
                 st.rerun()
             else:
-                st.error("Code Admin incorrect.")
+                st.error("Mot de passe Admin incorrect.")
     with col2:
         if st.button("Connexion Lecteur"):
             st.session_state.authentifie = True
@@ -55,6 +56,7 @@ if not st.session_state.authentifie:
             st.rerun()
 
 else:
+    # BARRE LATÉRALE
     st.sidebar.title(f"👤 Mode : {st.session_state.role}")
     if st.sidebar.button("Déconnexion"):
         st.session_state.authentifie = False
@@ -63,26 +65,35 @@ else:
 
     st.title("📦 Application de Stock & Ventes")
 
+    # RESTRICTION : Seul l'Admin voit les menus de modification
     if st.session_state.role == "Admin":
         menu = st.sidebar.radio("Navigation", ["Tableau de Bord", "Saisir une Vente", "Gérer / Modifier le Stock"])
     else:
         menu = st.sidebar.radio("Navigation", ["Tableau de Bord"])
 
-    # 1. TABLEAU DE BORD (CONSULTATION)
+    # 1. TABLEAU DE BORD (Accessible par tous)
     if menu == "Tableau de Bord":
         st.header("📊 Stock & Ventes")
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("📦 Stock en Temps Réel")
-            st.dataframe(st.session_state.stock, use_container_width=True)
+            st.subheader("📦 Stock Actuel")
+            if st.session_state.stock.empty:
+                st.info("Le stock est vide.")
+            else:
+                st.dataframe(st.session_state.stock, use_container_width=True)
 
         with col2:
             st.subheader("🛒 Historique des Ventes")
-            st.dataframe(st.session_state.ventes, use_container_width=True)
+            if st.session_state.ventes.empty:
+                st.info("Aucune vente enregistrée.")
+            else:
+                st.dataframe(st.session_state.ventes, use_container_width=True)
 
         st.divider()
-        st.subheader("📈 Courbe des Ventes")
-        if not st.session_state.ventes.empty:
+        st.subheader("📈 Évolution des Ventes (Graphique en Courbe)")
+        if st.session_state.ventes.empty:
+            st.warning("Le graphique apparaîtra dès la première vente.")
+        else:
             ventes_cumul = st.session_state.ventes.copy()
             ventes_cumul["Vente N°"] = range(1, len(ventes_cumul) + 1)
             fig_courbe = px.line(
@@ -94,90 +105,102 @@ else:
             )
             st.plotly_chart(fig_courbe, use_container_width=True)
 
-    # 2. SAISIR UNE VENTE
+    # 2. SAISIR UNE VENTE (ADMIN SEULEMENT)
     elif menu == "Saisir une Vente":
         st.header("🛒 Enregistrer une Vente")
         if st.session_state.stock.empty:
-            st.warning("Aucun produit disponible. Ajoutez des produits en mode Admin.")
+            st.warning("Le stock est vide. Ajoutez d'abord des produits.")
         else:
-            produits = st.session_state.stock["Produit"].tolist()
-            prod_choisi = st.selectbox("Produit vendu :", produits)
-            quantite = st.number_input("Quantité vendue :", min_value=1, step=1, value=1)
+            with st.form("form_vente"):
+                produits = st.session_state.stock["Produit"].tolist()
+                prod_choisi = st.selectbox("Produit vendu :", produits)
+                quantite = st.number_input("Quantité vendue :", min_value=1, step=1, value=1)
+                valider_v = st.form_submit_button("🛒 Valider la vente")
 
-            if st.button("Valider la vente"):
-                idx = st.session_state.stock[st.session_state.stock["Produit"] == prod_choisi].index[0]
-                stock_actuel = st.session_state.stock.at[idx, "Quantité"]
-                prix_unitaire = st.session_state.stock.at[idx, "Prix Unitaire (€)"]
+                if valider_v:
+                    idx = st.session_state.stock[st.session_state.stock["Produit"] == prod_choisi].index[0]
+                    stock_actuel = st.session_state.stock.at[idx, "Quantité"]
+                    prix_unitaire = st.session_state.stock.at[idx, "Prix Unitaire (€)"]
 
-                if quantite > stock_actuel:
-                    st.error(f"Stock insuffisant ({stock_actuel} restant).")
-                else:
-                    st.session_state.stock.at[idx, "Quantité"] -= quantite
-                    total = quantite * prix_unitaire
-                    date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    
-                    nouvelle_vente = pd.DataFrame([{
-                        "Date": date_str,
-                        "Produit": prod_choisi, 
-                        "Quantité Vendue": quantite, 
-                        "Total (€)": total
-                    }])
-                    st.session_state.ventes = pd.concat([st.session_state.ventes, nouvelle_vente], ignore_index=True)
-                    sauvegarder_donnees()
-                    st.success(f"Vente validée ! Total : {total:.2f} €")
-                    st.rerun()
+                    if quantite > stock_actuel:
+                        st.error(f"Stock insuffisant ! Il ne reste que {stock_actuel} unités.")
+                    else:
+                        st.session_state.stock.at[idx, "Quantité"] -= quantite
+                        total = quantite * prix_unitaire
+                        date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        
+                        nouvelle_vente = pd.DataFrame([{
+                            "Date": date_str,
+                            "Produit": prod_choisi, 
+                            "Quantité Vendue": quantite, 
+                            "Total (€)": total
+                        }])
+                        st.session_state.ventes = pd.concat([st.session_state.ventes, nouvelle_vente], ignore_index=True)
+                        sauvegarder_donnees()
+                        st.success(f"Vente enregistrée ! Total : {total:.2f} €")
+                        st.rerun()
 
-    # 3. GÉRER ET MODIFIER LE STOCK (ADMIN INTERACTIF)
+    # 3. GÉRER LE STOCK (ADMIN SEULEMENT - FORMULAIRES TOTALEMENT ÉDITABLES)
     elif menu == "Gérer / Modifier le Stock":
-        st.header("⚙️ Espace Administration (Création & Modification)")
+        st.header("⚙️ Espace Admin : Création & Modification")
 
-        st.subheader("➕ 1. Créer un produit")
-        col_a, col_b, col_c = st.columns(3)
-        with col_a:
-            nom_saisi = st.text_input("Nom du Produit :", key="nouveau_nom")
-        with col_b:
-            qte_saisie = st.number_input("Quantité :", min_value=0, step=1, value=0, key="nouvelle_qte")
-        with col_c:
-            prix_saisi = st.number_input("Prix Unitaire (€) :", min_value=0.0, step=0.5, value=0.0, key="nouveau_prix")
+        # FORMULAIRE 1 : CRÉATION D'UN PRODUIT
+        st.subheader("➕ 1. Créer un nouveau produit")
+        with st.form("form_ajout_produit"):
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                nom_saisi = st.text_input("Nom du Produit")
+            with col_b:
+                qte_saisie = st.number_input("Quantité", min_value=0, step=1, value=0)
+            with col_c:
+                prix_saisi = st.number_input("Prix Unitaire (€)", min_value=0.0, step=0.5, value=0.0)
+            
+            bouton_ajouter = st.form_submit_button("➕ Ajouter au Stock")
 
-        if st.button("➕ Ajouter au Stock"):
-            if nom_saisi.strip() == "":
-                st.error("Veuillez entrer un nom de produit.")
-            elif nom_saisi in st.session_state.stock["Produit"].values:
-                st.error("Ce produit existe déjà.")
-            else:
-                nouveau_produit = pd.DataFrame([{"Produit": nom_saisi, "Quantité": qte_saisie, "Prix Unitaire (€)": prix_saisi}])
-                st.session_state.stock = pd.concat([st.session_state.stock, nouveau_produit], ignore_index=True)
-                sauvegarder_donnees()
-                st.success(f"Produit '{nom_saisi}' créé avec succès !")
-                st.rerun()
+            if bouton_ajouter:
+                if nom_saisi.strip() == "":
+                    st.error("Veuillez saisir un nom de produit.")
+                elif nom_saisi in st.session_state.stock["Produit"].values:
+                    st.error("Ce produit existe déjà.")
+                else:
+                    nouveau_produit = pd.DataFrame([{"Produit": nom_saisi, "Quantité": qte_saisie, "Prix Unitaire (€)": prix_saisi}])
+                    st.session_state.stock = pd.concat([st.session_state.stock, nouveau_produit], ignore_index=True)
+                    sauvegarder_donnees()
+                    st.success(f"Produit '{nom_saisi}' ajouté avec succès !")
+                    st.rerun()
 
         st.divider()
 
-        # Modification interactive des produits déjà créés
+        # FORMULAIRE 2 : MODIFICATION / SUPPRESSION D'UN PRODUIT EXISTANT
         if not st.session_state.stock.empty:
-            st.subheader("✏️ 2. Modifier un produit existant")
-            prod_slectionne = st.selectbox("Choisir le produit à modifier :", st.session_state.stock["Produit"].tolist())
-            idx_p = st.session_state.stock[st.session_state.stock["Produit"] == prod_slectionne].index[0]
+            st.subheader("✏️ 2. Modifier ou Supprimer un produit existant")
+            
+            prod_selectionne = st.selectbox("Choisir le produit à modifier :", st.session_state.stock["Produit"].tolist())
+            idx_p = st.session_state.stock[st.session_state.stock["Produit"] == prod_selectionne].index[0]
 
-            col_m1, col_m2 = st.columns(2)
-            with col_m1:
-                qte_mod = st.number_input("Changer la Quantité :", min_value=0, step=1, value=int(st.session_state.stock.at[idx_p, "Quantité"]))
-            with col_m2:
-                prix_mod = st.number_input("Changer le Prix (€) :", min_value=0.0, step=0.5, value=float(st.session_state.stock.at[idx_p, "Prix Unitaire (€)"]))
+            qte_actuelle = int(st.session_state.stock.at[idx_p, "Quantité"])
+            prix_actuel = float(st.session_state.stock.at[idx_p, "Prix Unitaire (€)"])
 
-            col_b1, col_b2 = st.columns(2)
-            with col_b1:
-                if st.button("💾 Enregistrer les modifications"):
-                    st.session_state.stock.at[idx_p, "Quantité"] = qte_mod
-                    st.session_state.stock.at[idx_p, "Prix Unitaire (€)"] = prix_mod
+            with st.form("form_modif_produit"):
+                col_m1, col_m2 = st.columns(2)
+                with col_m1:
+                    nouvelle_qte = st.number_input("Nouvelle Quantité", min_value=0, step=1, value=qte_actuelle)
+                with col_m2:
+                    nouveau_prix = st.number_input("Nouveau Prix (€)", min_value=0.0, step=0.5, value=prix_actuel)
+
+                btn_sauver = st.form_submit_button("💾 Enregistrer les modifications")
+
+                if btn_sauver:
+                    st.session_state.stock.at[idx_p, "Quantité"] = nouvelle_qte
+                    st.session_state.stock.at[idx_p, "Prix Unitaire (€)"] = nouveau_prix
                     sauvegarder_donnees()
                     st.success("Produit mis à jour !")
                     st.rerun()
-            with col_b2:
-                if st.button("🗑️ Supprimer ce produit"):
-                    st.session_state.stock = st.session_state.stock.drop(idx_p).reset_index(drop=True)
-                    sauvegarder_donnees()
-                    st.success("Produit supprimé !")
-                    st.rerun()
+
+            # Bouton de suppression séparé
+            if st.button("🗑️ Supprimer définitivement ce produit"):
+                st.session_state.stock = st.session_state.stock.drop(idx_p).reset_index(drop=True)
+                sauvegarder_donnees()
+                st.success("Produit supprimé !")
+                st.rerun()
                 
