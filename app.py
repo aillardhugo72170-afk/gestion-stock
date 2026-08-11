@@ -1,19 +1,17 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from datetime import datetime
 
 # Configuration de la page
 st.set_page_config(page_title="Gestion de Stock & Ventes", page_icon="📦", layout="wide")
 
-# Initialisation des données dans la session
+# Initialisation des données à zéro / vides
 if "stock" not in st.session_state:
-    st.session_state.stock = pd.DataFrame([
-        {"Produit": "Article A", "Quantité": 50, "Prix Unitaire (€)": 15.0},
-        {"Produit": "Article B", "Quantité": 20, "Prix Unitaire (€)": 25.0},
-    ])
+    st.session_state.stock = pd.DataFrame(columns=["Produit", "Quantité", "Prix Unitaire (€)"])
 
 if "ventes" not in st.session_state:
-    st.session_state.ventes = pd.DataFrame(columns=["Produit", "Quantité Vendue", "Total (€)"])
+    st.session_state.ventes = pd.DataFrame(columns=["Date", "Produit", "Quantité Vendue", "Total (€)"])
 
 # Authentification simple
 if "authentifie" not in st.session_state:
@@ -22,11 +20,11 @@ if "authentifie" not in st.session_state:
 
 def connexion():
     st.title("🔒 Connexion à l'Application")
-    pwd = st.text_input("Entrez le mot de passe", type="password")
+    pwd = st.text_input("Entrez le mot de passe Admin (ou cliquez directement sur Lecteur)", type="password")
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Connexion Admin"):
-            if pwd == "admin99":
+            if pwd == "99":
                 st.session_state.authentifie = True
                 st.session_state.role = "Admin"
                 st.rerun()
@@ -34,12 +32,9 @@ def connexion():
                 st.error("Mot de passe Admin incorrect.")
     with col2:
         if st.button("Connexion Lecteur"):
-            if pwd == "1234":
-                st.session_state.authentifie = True
-                st.session_state.role = "Lecteur"
-                st.rerun()
-            else:
-                st.error("Mot de passe Lecteur incorrect.")
+            st.session_state.authentifie = True
+            st.session_state.role = "Lecteur"
+            st.rerun()
 
 if not st.session_state.authentifie:
     connexion()
@@ -50,31 +45,56 @@ else:
         st.session_state.role = None
         st.rerun()
 
-    st.title("📦 Application de Gestion de Stock & Ventes")
+    st.title("📦 Gestion de Stock & Suivi des Ventes")
 
-    menu = st.sidebar.radio("Navigation", ["Aperçu & Graphiques", "Saisir une Vente", "Gérer le Stock (Admin)"])
+    # Restriction du menu selon le rôle
+    if st.session_state.role == "Admin":
+        menu = st.sidebar.radio("Navigation", ["Tableau de Bord", "Saisir une Vente", "Gérer le Stock (Admin)"])
+    else:
+        menu = st.sidebar.radio("Navigation", ["Tableau de Bord"])
 
-    if menu == "Aperçu & Graphiques":
-        st.header("📊 Tableau de Bord")
+    # 1. TABLEAU DE BORD (GRAPHIOUE EN COURBE ET APERÇU)
+    if menu == "Tableau de Bord":
+        st.header("📊 Tableau de Bord & Historique")
+        
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("Stock Actuel")
-            st.dataframe(st.session_state.stock, use_container_width=True)
-            if not st.session_state.stock.empty:
-                fig_stock = px.bar(st.session_state.stock, x="Produit", y="Quantité", title="Quantités en Stock", color="Produit")
-                st.plotly_chart(fig_stock, use_container_width=True)
+            st.subheader("📦 Stock Actuel")
+            if st.session_state.stock.empty:
+                st.info("Aucun article en stock pour le moment.")
+            else:
+                st.dataframe(st.session_state.stock, use_container_width=True)
 
         with col2:
-            st.subheader("Historique des Ventes")
-            st.dataframe(st.session_state.ventes, use_container_width=True)
-            if not st.session_state.ventes.empty:
-                fig_ventes = px.pie(st.session_state.ventes, names="Produit", values="Total (€)", title="Répartition du Chiffre d'Affaires")
-                st.plotly_chart(fig_ventes, use_container_width=True)
+            st.subheader("🛒 Historique des Ventes")
+            if st.session_state.ventes.empty:
+                st.info("Aucune vente enregistrée pour le moment.")
+            else:
+                st.dataframe(st.session_state.ventes, use_container_width=True)
 
+        st.divider()
+        st.subheader("📈 Évolution des Ventes (Graphique en Courbe)")
+        if st.session_state.ventes.empty:
+            st.warning("Le graphique en courbe s'affichera dès qu'une première vente sera enregistrée.")
+        else:
+            ventes_cumul = st.session_state.ventes.copy()
+            ventes_cumul["Vente N°"] = range(1, len(ventes_cumul) + 1)
+            fig_courbe = px.line(
+                ventes_cumul, 
+                x="Vente N°", 
+                y="Total (€)", 
+                markers=True, 
+                line_shape="spline",
+                title="Évolution du Chiffre d'Affaires (€)"
+            )
+            fig_courbe.update_traces(line_color="#1f77b4", line_width=3)
+            st.plotly_chart(fig_courbe, use_container_width=True)
+
+    # 2. SAISIR UNE VENTE (ADMIN UNIQUEMENT)
     elif menu == "Saisir une Vente":
-        st.header("🛒 Enregistrer une Vente")
+        st.header("🛒 Enregistrer une Nouvelle Vente")
         if st.session_state.stock.empty:
-            st.warning("Aucun produit disponible en stock.")
+            st.warning("Le stock est vide. Veuillez d'abord ajouter des produits dans le menu 'Gérer le Stock'.")
         else:
             produits = st.session_state.stock["Produit"].tolist()
             prod_choisi = st.selectbox("Sélectionnez le produit", produits)
@@ -90,26 +110,70 @@ else:
                 else:
                     st.session_state.stock.at[idx, "Quantité"] -= quantite
                     total = quantite * prix_unitaire
-                    nouvelle_vente = pd.DataFrame([{"Produit": prod_choisi, "Quantité Vendue": quantite, "Total (€)": total}])
+                    date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    
+                    nouvelle_vente = pd.DataFrame([{
+                        "Date": date_str,
+                        "Produit": prod_choisi, 
+                        "Quantité Vendue": quantite, 
+                        "Total (€)": total
+                    }])
                     st.session_state.ventes = pd.concat([st.session_state.ventes, nouvelle_vente], ignore_index=True)
-                    st.success(f"Vente enregistrée ! Total : {total:.2f} €")
+                    st.success(f"Vente enregistrée avec succès ! Total : {total:.2f} €")
                     st.rerun()
 
+    # 3. GÉRER LE STOCK (ADMIN UNIQUEMENT)
     elif menu == "Gérer le Stock (Admin)":
         if st.session_state.role != "Admin":
-            st.error("Seul un Administrateur peut modifier le stock.")
+            st.error("Accès restreint : Seul un Administrateur peut modifier le stock.")
         else:
-            st.header("🛠️ Ajouter un Produit")
-            nom_prod = st.text_input("Nom du produit")
-            qte_prod = st.number_input("Quantité initiale", min_value=0, step=1)
-            prix_prod = st.number_input("Prix unitaire (€)", min_value=0.0, step=0.5)
+            st.header("⚙️ Administration du Stock")
 
-            if st.button("Ajouter au stock"):
-                if nom_prod.strip() == "":
-                    st.error("Le nom du produit ne peut pas être vide.")
-                else:
-                    nouveau_prod = pd.DataFrame([{"Produit": nom_prod, "Quantité": qte_prod, "Prix Unitaire (€)": prix_prod}])
-                    st.session_state.stock = pd.concat([st.session_state.stock, nouveau_prod], ignore_index=True)
-                    st.success(f"Produit '{nom_prod}' ajouté avec succès !")
-                    st.rerun()
-                  
+            st.subheader("➕ Ajouter un nouveau produit")
+            with st.form("ajout_produit"):
+                nom_prod = st.text_input("Nom du produit")
+                qte_prod = st.number_input("Quantité initiale", min_value=0, step=1, value=0)
+                prix_prod = st.number_input("Prix unitaire (€)", min_value=0.0, step=0.5, value=0.0)
+                valider_ajout = st.form_submit_button("Ajouter au stock")
+
+                if valider_ajout:
+                    if nom_prod.strip() == "":
+                        st.error("Veuillez indiquer un nom de produit.")
+                    elif nom_prod in st.session_state.stock["Produit"].values:
+                        st.error("Ce produit existe déjà dans le stock.")
+                    else:
+                        nouveau_prod = pd.DataFrame([{"Produit": nom_prod, "Quantité": qte_prod, "Prix Unitaire (€)": prix_prod}])
+                        st.session_state.stock = pd.concat([st.session_state.stock, nouveau_prod], ignore_index=True)
+                        st.success(f"Produit '{nom_prod}' ajouté au stock !")
+                        st.rerun()
+
+            st.divider()
+
+            if not st.session_state.stock.empty:
+                st.subheader("✏️ Modifier / Supprimer des produits existants")
+                
+                prod_a_modifier = st.selectbox("Sélectionnez le produit à éditer", st.session_state.stock["Produit"].tolist())
+                idx_mod = st.session_state.stock[st.session_state.stock["Produit"] == prod_a_modifier].index[0]
+                
+                qte_actuelle = int(st.session_state.stock.at[idx_mod, "Quantité"])
+                prix_actuel = float(st.session_state.stock.at[idx_mod, "Prix Unitaire (€)"])
+
+                col_mod1, col_mod2 = st.columns(2)
+                with col_mod1:
+                    nouvelle_qte = st.number_input("Nouvelle quantité", min_value=0, step=1, value=qte_actuelle)
+                with col_mod2:
+                    nouveau_prix = st.number_input("Nouveau prix (€)", min_value=0.0, step=0.5, value=prix_actuel)
+
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("💾 Mettre à jour"):
+                        st.session_state.stock.at[idx_mod, "Quantité"] = nouvelle_qte
+                        st.session_state.stock.at[idx_mod, "Prix Unitaire (€)"] = nouveau_prix
+                        st.success("Mise à jour effectuée !")
+                        st.rerun()
+                with col_btn2:
+                    if st.button("🗑️ Supprimer le produit"):
+                        st.session_state.stock = st.session_state.stock.drop(idx_mod).reset_index(drop=True)
+                        st.success("Produit supprimé !")
+                        st.rerun()
+            
